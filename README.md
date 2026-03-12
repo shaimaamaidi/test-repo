@@ -32,3 +32,26 @@ Example:
 
    python src/clickup_commit_script.py -t abc123 -s "in review" -m "feat: add login page" -b main
 
+## Branch handling cases
+
+The branch parameter is optional. The cases below apply when running the command with or without specifying a branch.
+
+- Case 1 (with or without specifying branch): if the branch exists on the remote:
+
+- Push normally with `git push origin <branch>`.
+
+- Case 2 (with or without specifying branch): if the branch does not exist on the remote:
+
+- Menu: [1] Create / [2] Abort.
+
+- Case 3 (without specifying branch): if `first_commit` is selected:
+
+- Menu: [1] Create / [2] Abort, and the branch to be created is `main`.
+
+## Examples (screenshots)
+
+![Validate script](docs/images/validate_script.png)
+![Push with creating branch](docs/images/push_with_creating_branch.png)
+![First push without specifying branch](docs/images/first_push_without_specifying_branch.png)
+![Error status](docs/images/error_status.png)
+

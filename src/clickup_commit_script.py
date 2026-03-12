@@ -48,15 +48,6 @@ def get_task(task_id: str) -> dict:
 
 
 def get_list_statuses(list_id: str) -> list[str]:
-    """
-    Retrieve all available statuses for a given ClickUp list.
-
-    Args:
-        list_id: The ClickUp list ID.
-
-    Returns:
-        A list of status name strings (lowercased).
-    """
     url = f"{CLICKUP_BASE_URL}/list/{list_id}"
     headers = {"Authorization": CLICKUP_API_TOKEN, "Content-Type": "application/json"}
 
@@ -71,14 +62,6 @@ def get_list_statuses(list_id: str) -> list[str]:
 
 
 def validate_status(task: dict, new_status: str) -> None:
-    """
-    Validate that new_status exists in the task's list statuses.
-    Exits with an error if the status is invalid.
-
-    Args:
-        task: The ClickUp task dict (must contain list.id).
-        new_status: The status to validate.
-    """
     list_id = task.get("list", {}).get("id")
 
     if not list_id:
@@ -155,8 +138,67 @@ def git_current_branch() -> str:
     return result.stdout.strip()
 
 
+def remote_branch_exists(branch: str) -> bool:
+    """Check if a branch exists on the remote."""
+    result = run_git(["ls-remote", "--heads", "origin", branch])
+    return bool(result.stdout.strip())
+
+
+def resolve_branch(branch_arg: str | None) -> str:
+    """
+    Resolve the target branch:
+    - If --branch was provided, use it directly.
+    - Otherwise, detect the current local branch.
+    - If the resolved branch does not exist on remote, ask the user
+      whether to create it or provide a different branch name.
+    """
+    if branch_arg:
+        branch = branch_arg
+    else:
+        branch = git_current_branch()
+        logger.info("No branch specified. Using current branch: '%s'.", branch)
+
+    # Check remote existence
+    if not remote_branch_exists(branch):
+        logger.warning("Branch '%s' does not exist on remote.", branch)
+
+        while True:
+            print(f"\n  Branch '{branch}' was not found on remote.")
+            print("  [1] Create it on remote")
+            print("  [2] Enter a different branch name")
+            print("  [3] Abort")
+            choice = input("  Your choice [1/2/3]: ").strip()
+
+            if choice == "1":
+                logger.info("Branch '%s' will be created on remote during push.", branch)
+                break
+            elif choice == "2":
+                new_branch = input("  Enter branch name: ").strip()
+                if not new_branch:
+                    logger.warning("Branch name cannot be empty. Please try again.")
+                    continue
+                branch = new_branch
+                if remote_branch_exists(branch):
+                    logger.info("Branch '%s' found on remote.", branch)
+                    break
+                else:
+                    logger.warning("Branch '%s' also does not exist on remote.", branch)
+                    # Loop again with the new branch name
+            elif choice == "3":
+                logger.info("Aborted by user.")
+                sys.exit(0)
+            else:
+                logger.warning("Invalid choice. Please enter 1, 2, or 3.")
+
+    return branch
+
+
 def git_push(branch: str):
-    result = run_git(["push", "origin", branch])
+    """Push commits to the remote branch, creating it if necessary."""
+    if remote_branch_exists(branch):
+        result = run_git(["push", "origin", branch])
+    else:
+        result = run_git(["push", "--set-upstream", "origin", branch])
 
     if result.returncode != 0:
         logger.error("git push failed: %s", result.stderr.strip())
@@ -191,8 +233,8 @@ def main():
         logger.error("Missing ClickUp API URL. Define CLICKUP_BASE_URL in your .env file.")
         sys.exit(1)
 
-    # Resolve branch
-    branch = args.branch if args.branch else git_current_branch()
+    # Resolve branch (handles missing remote + user interaction)
+    branch = resolve_branch(args.branch)
     logger.info("Target branch: %s", branch)
 
     # Fetch ClickUp task

@@ -48,6 +48,10 @@ The branch parameter is optional. The cases below apply when running the command
 
 - Menu: [1] Create / [2] Abort, and the branch to be created is `main`.
 
+## No commit case
+
+- If there is nothing to commit, the script skips the push step but still updates the ClickUp status.
+
 ## Examples (screenshots)
 
 ### Case: Valid script

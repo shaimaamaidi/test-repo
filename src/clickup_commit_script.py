@@ -47,6 +47,57 @@ def get_task(task_id: str) -> dict:
     return response.json()
 
 
+def get_list_statuses(list_id: str) -> list[str]:
+    """
+    Retrieve all available statuses for a given ClickUp list.
+
+    Args:
+        list_id: The ClickUp list ID.
+
+    Returns:
+        A list of status name strings (lowercased).
+    """
+    url = f"{CLICKUP_BASE_URL}/list/{list_id}"
+    headers = {"Authorization": CLICKUP_API_TOKEN, "Content-Type": "application/json"}
+
+    response = requests.get(url, headers=headers)
+
+    if response.status_code != 200:
+        logger.error("Failed to fetch list statuses (%s): %s", response.status_code, response.text)
+        sys.exit(1)
+
+    statuses = response.json().get("statuses", [])
+    return [s["status"].lower() for s in statuses]
+
+
+def validate_status(task: dict, new_status: str) -> None:
+    """
+    Validate that new_status exists in the task's list statuses.
+    Exits with an error if the status is invalid.
+
+    Args:
+        task: The ClickUp task dict (must contain list.id).
+        new_status: The status to validate.
+    """
+    list_id = task.get("list", {}).get("id")
+
+    if not list_id:
+        logger.warning("Could not retrieve list ID from task. Skipping status validation.")
+        return
+
+    available_statuses = get_list_statuses(list_id)
+
+    if new_status.lower() not in available_statuses:
+        logger.error(
+            "Status '%s' does not exist in this list. Available statuses: %s",
+            new_status,
+            ", ".join(available_statuses),
+        )
+        sys.exit(1)
+
+    logger.info("Status '%s' validated successfully.", new_status)
+
+
 def update_task_status(task_id: str, new_status: str) -> dict:
     url = f"{CLICKUP_BASE_URL}/task/{task_id}"
     headers = {"Authorization": CLICKUP_API_TOKEN, "Content-Type": "application/json"}
@@ -97,7 +148,6 @@ def git_commit(message: str):
 
 
 def git_current_branch() -> str:
-    """Return the name of the current local branch."""
     result = run_git(["rev-parse", "--abbrev-ref", "HEAD"])
     if result.returncode != 0:
         logger.error("Failed to get current branch: %s", result.stderr)
@@ -106,7 +156,6 @@ def git_current_branch() -> str:
 
 
 def git_push(branch: str):
-    """Push commits to the given branch on the remote repository."""
     result = run_git(["push", "origin", branch])
 
     if result.returncode != 0:
@@ -153,6 +202,10 @@ def main():
     current_status = task.get("status", {}).get("status", "unknown")
     logger.info("Task name: %s", task_name)
     logger.info("Current status: %s", current_status)
+
+    # Validate status before doing anything
+    logger.info("Validating status '%s'...", args.status)
+    validate_status(task, args.status)
 
     # Git operations
     logger.info("Starting Git workflow (add + commit + push).")

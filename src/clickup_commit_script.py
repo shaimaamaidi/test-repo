@@ -3,10 +3,10 @@ Script to perform a Git commit workflow (add + commit + push) and update the
 status of a ClickUp task.
 
 Usage:
-    python clickup_commit.py --task-id <TASK_ID> --status <STATUS> --message <COMMIT_MESSAGE>
+    python clickup_commit.py --task-id <TASK_ID> --status <STATUS> --message <COMMIT_MESSAGE> --branch <BRANCH>
 
 Example:
-    python clickup_commit.py --task-id abc123 --status "in review" --message "feat: add login page"
+    python clickup_commit.py --task-id abc123 --status "in review" --message "feat: add login page" --branch main
 """
 
 import argparse
@@ -31,18 +31,6 @@ logger = logging.getLogger(__name__)
 
 
 def get_task(task_id: str) -> dict:
-    """
-    Retrieve a ClickUp task by its ID.
-
-    Args:
-        task_id: The ClickUp task ID.
-
-    Returns:
-        A dictionary containing the task information.
-
-    Raises:
-        SystemExit: If the task cannot be retrieved.
-    """
     url = f"{CLICKUP_BASE_URL}/task/{task_id}"
     headers = {"Authorization": CLICKUP_API_TOKEN, "Content-Type": "application/json"}
 
@@ -53,30 +41,13 @@ def get_task(task_id: str) -> dict:
         sys.exit(1)
 
     if response.status_code != 200:
-        logger.error(
-            "ClickUp API error (%s): %s",
-            response.status_code,
-            response.text,
-        )
+        logger.error("ClickUp API error (%s): %s", response.status_code, response.text)
         sys.exit(1)
 
     return response.json()
 
 
 def update_task_status(task_id: str, new_status: str) -> dict:
-    """
-    Update the status of a ClickUp task.
-
-    Args:
-        task_id: The ClickUp task ID.
-        new_status: The new status to apply.
-
-    Returns:
-        The updated task information.
-
-    Raises:
-        SystemExit: If the status update fails.
-    """
     url = f"{CLICKUP_BASE_URL}/task/{task_id}"
     headers = {"Authorization": CLICKUP_API_TOKEN, "Content-Type": "application/json"}
 
@@ -94,22 +65,10 @@ def update_task_status(task_id: str, new_status: str) -> dict:
 
 
 def run_git(args: list) -> subprocess.CompletedProcess:
-    """
-    Execute a Git command.
-
-    Args:
-        args: List of Git command arguments.
-
-    Returns:
-        The completed subprocess result.
-    """
     return subprocess.run(["git"] + args, capture_output=True, text=True)
 
 
 def git_add_all():
-    """
-    Stage all modified and new files in the repository.
-    """
     result = run_git(["add", "-A"])
 
     if result.returncode != 0:
@@ -120,15 +79,6 @@ def git_add_all():
 
 
 def git_commit(message: str):
-    """
-    Create a Git commit with the provided message.
-
-    Args:
-        message: Commit message.
-
-    Raises:
-        SystemExit: If the commit fails.
-    """
     result = run_git(["commit", "-m", message])
 
     if result.returncode != 0:
@@ -146,96 +96,74 @@ def git_commit(message: str):
         logger.info("Commit hash: %s", hash_result.stdout.strip())
 
 
-def git_push():
-    """
-    Push commits to the remote repository.
+def git_current_branch() -> str:
+    """Return the name of the current local branch."""
+    result = run_git(["rev-parse", "--abbrev-ref", "HEAD"])
+    if result.returncode != 0:
+        logger.error("Failed to get current branch: %s", result.stderr)
+        sys.exit(1)
+    return result.stdout.strip()
 
-    Raises:
-        SystemExit: If the push fails.
-    """
-    result = run_git(["push"])
+
+def git_push(branch: str):
+    """Push commits to the given branch on the remote repository."""
+    result = run_git(["push", "origin", branch])
 
     if result.returncode != 0:
         logger.error("git push failed: %s", result.stderr.strip())
         sys.exit(1)
 
-    logger.info("Git push completed successfully.")
+    logger.info("Git push completed successfully to branch '%s'.", branch)
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
 def main():
-    """
-    Main entry point of the script.
-
-    This function:
-    1. Parses command line arguments.
-    2. Retrieves the ClickUp task.
-    3. Executes Git operations (add, commit, push).
-    4. Updates the ClickUp task status.
-    """
-
     parser = argparse.ArgumentParser(
         description="Perform git add + commit + push and update a ClickUp task status."
     )
 
+    parser.add_argument("--task-id", "-t", required=True, help="ClickUp task ID.")
+    parser.add_argument("--status", "-s", required=True, help="New ClickUp task status.")
+    parser.add_argument("--message", "-m", required=True, help="Git commit message.")
     parser.add_argument(
-        "--task-id",
-        "-t",
-        required=True,
-        help="ClickUp task ID.",
-    )
-
-    parser.add_argument(
-        "--status",
-        "-s",
-        required=True,
-        help="New ClickUp task status.",
-    )
-
-    parser.add_argument(
-        "--message",
-        "-m",
-        required=True,
-        help="Git commit message.",
+        "--branch",
+        "-b",
+        required=False,
+        default=None,
+        help="Remote branch to push to (default: current branch).",
     )
 
     args = parser.parse_args()
 
     if not CLICKUP_API_TOKEN:
-        logger.error(
-            "Missing ClickUp API token. Define CLICKUP_API_TOKEN in your .env file."
-        )
+        logger.error("Missing ClickUp API token. Define CLICKUP_API_TOKEN in your .env file.")
         sys.exit(1)
 
     if not CLICKUP_BASE_URL:
-        logger.error(
-            "Missing ClickUp API URL. Define CLICKUP_BASE_URL in your .env file."
-        )
+        logger.error("Missing ClickUp API URL. Define CLICKUP_BASE_URL in your .env file.")
         sys.exit(1)
 
+    # Resolve branch
+    branch = args.branch if args.branch else git_current_branch()
+    logger.info("Target branch: %s", branch)
+
+    # Fetch ClickUp task
     logger.info("Fetching ClickUp task '%s'...", args.task_id)
-
     task = get_task(args.task_id)
-
     task_name = task.get("name", "Untitled")
     current_status = task.get("status", {}).get("status", "unknown")
-
     logger.info("Task name: %s", task_name)
     logger.info("Current status: %s", current_status)
 
     # Git operations
     logger.info("Starting Git workflow (add + commit + push).")
-
     git_add_all()
     git_commit(args.message)
-    git_push()
+    git_push(branch)
 
     # ClickUp update
     logger.info("Updating ClickUp task status to '%s'...", args.status)
-
     updated_task = update_task_status(args.task_id, args.status)
     new_status = updated_task.get("status", {}).get("status", args.status)
-
     logger.info("Status updated: '%s' → '%s'", current_status, new_status)
 
     task_url = updated_task.get("url", "")

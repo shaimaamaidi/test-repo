@@ -106,13 +106,14 @@ def git_add_all():
     logger.info("Git add completed successfully.")
 
 
-def git_commit(message: str):
+def git_commit(message: str) -> bool:
+    """Returns True if commit was created, False if nothing to commit."""
     result = run_git(["commit", "-m", message])
 
     if result.returncode != 0:
         if "nothing to commit" in result.stdout or "nothing to commit" in result.stderr:
             logger.info("Nothing to commit (working tree clean).")
-            sys.exit(0)
+            return False
 
         logger.error("git commit failed: %s", result.stderr)
         sys.exit(1)
@@ -122,6 +123,8 @@ def git_commit(message: str):
     hash_result = run_git(["rev-parse", "--short", "HEAD"])
     if hash_result.returncode == 0:
         logger.info("Commit hash: %s", hash_result.stdout.strip())
+
+    return True
 
 
 def git_current_branch() -> str:
@@ -180,12 +183,22 @@ def local_branch_exists(branch: str) -> bool:
     return bool(result.stdout.strip())
 
 
+def is_first_push() -> bool:
+    """Return True if the remote has no commits at all (empty repo)."""
+    result = run_git(["ls-remote", "--heads", "origin"])
+    return result.returncode == 0 and not result.stdout.strip()
+
+
 def git_push(branch: str):
     """Push commits to the remote branch, creating it locally and remotely if necessary."""
-    if remote_branch_exists(branch):
+    if is_first_push():
+        # Empty remote repo — first push ever
+        logger.info("Remote repository is empty. Performing initial push.")
+        result = run_git(["push", "--set-upstream", "origin", branch])
+    elif remote_branch_exists(branch):
         result = run_git(["push", "origin", branch])
     else:
-        # Create local branch from current HEAD if it doesn't exist locally
+        # Branch exists locally but not on remote — create it remotely
         if not local_branch_exists(branch):
             result = run_git(["branch", branch])
             if result.returncode != 0:
@@ -247,8 +260,12 @@ def main():
     # Git operations
     logger.info("Starting Git workflow (add + commit + push).")
     git_add_all()
-    git_commit(args.message)
-    git_push(branch)
+    committed = git_commit(args.message)
+
+    if committed:
+        git_push(branch)
+    else:
+        logger.info("Skipping push (nothing was committed). Proceeding to update ClickUp status.")
 
     # ClickUp update
     logger.info("Updating ClickUp task status to '%s'...", args.status)

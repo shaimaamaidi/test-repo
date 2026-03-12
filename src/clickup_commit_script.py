@@ -165,30 +165,17 @@ def resolve_branch(branch_arg: str | None) -> str:
         while True:
             print(f"\n  Branch '{branch}' was not found on remote.")
             print("  [1] Create it on remote")
-            print("  [2] Enter a different branch name")
-            print("  [3] Abort")
-            choice = input("  Your choice [1/2/3]: ").strip()
+            print("  [2] Abort")
+            choice = input("  Your choice [1/2]: ").strip()
 
             if choice == "1":
                 logger.info("Branch '%s' will be created on remote during push.", branch)
                 break
             elif choice == "2":
-                new_branch = input("  Enter branch name: ").strip()
-                if not new_branch:
-                    logger.warning("Branch name cannot be empty. Please try again.")
-                    continue
-                branch = new_branch
-                if remote_branch_exists(branch):
-                    logger.info("Branch '%s' found on remote.", branch)
-                    break
-                else:
-                    logger.warning("Branch '%s' also does not exist on remote.", branch)
-                    # Loop again with the new branch name
-            elif choice == "3":
                 logger.info("Aborted by user.")
                 sys.exit(0)
             else:
-                logger.warning("Invalid choice. Please enter 1, 2, or 3.")
+                logger.warning("Invalid choice. Please enter 1 or 2.")
 
     return branch
 
